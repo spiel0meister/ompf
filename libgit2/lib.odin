@@ -1,0 +1,149 @@
+package libgit2
+// what the fuck?
+
+import "core:c"
+foreign import lib {
+    "system:git2",
+    "system:ssl",
+    "system:crypto",
+}
+
+Error :: struct {
+    message: cstring,
+    klass: c.int,
+}
+
+Repository :: struct {}
+Tree :: struct {}
+Index :: struct {}
+
+Str_Array :: struct {
+    items: [^]cstring,
+    size: c.size_t,
+}
+
+Checkout_Options :: struct {
+    version: c.uint,
+    checkout_strategy: c.uint,
+    disable_filters: c.int,
+    dir_mode: c.uint,
+    file_mode: c.uint,
+    file_open_flags: c.int,
+    notify_flags: c.uint,
+    notify_cb: rawptr,
+    notify_payload: rawptr,
+    progress_cb: rawptr,
+    progress_payload: rawptr,
+    paths: Str_Array,
+    baseline: ^Tree,
+    baseline_index: ^Index,
+    target_directory: cstring,
+    ancestor_label: cstring,
+    our_label: cstring,
+    their_label: cstring,
+    perfdata_cb: rawptr,
+    perfdata_payload: rawptr,
+}
+
+Fetch_Prune :: enum c.int {
+    Unspecified = 0,
+    Prune = 1,
+    No_Prune = 2,
+}
+
+Autotag_Option :: enum c.int {
+    Unspecified = 0,
+    Auto = 1,
+    None = 2,
+    All = 3
+}
+
+Remote_Redirect :: enum c.int {
+    None = 1 << 0,
+    Initial = 1 << 1,
+    All = 1 << 2,
+}
+
+Remote_Callbacks :: struct {
+    version: c.uint,
+    sideband_progress: rawptr,
+    completion: proc(int, rawptr) -> c.int,
+    credentials: rawptr,
+    certificate_check: rawptr,
+    transfer_progress: rawptr,
+    indexer_progress: rawptr,
+    update_tips: proc(cstring, rawptr, rawptr, rawptr) -> c.int,
+    pack_progress: rawptr,
+    push_transfer_progress: rawptr,
+    push_update_reference: rawptr,
+    push_negotiation: rawptr,
+    transport: rawptr,
+    remote_ready: rawptr,
+    payload: rawptr,
+    resolve_url: rawptr,
+    update_refs: proc(cstring, rawptr, rawptr, rawptr, rawptr) -> c.int,
+}
+
+Proxy_Type :: enum c.int {
+    None = 0,
+    Auto,
+    Specified,
+}
+
+Proxy_Options :: struct {
+    version: c.uint,
+    type: Proxy_Type,
+    url: cstring,
+    credentials: rawptr,
+    certificate_check: rawptr,
+    payload: rawptr,
+}
+
+Fetch_Options :: struct {
+    version: c.int,
+    callbacks: Remote_Callbacks,
+    prune: Fetch_Prune,
+    update_fetchhead: c.uint,
+    download_tags: Autotag_Option,
+    git_proxy_options: Proxy_Options,
+    depth: c.int,
+    git_remote_redirect_t: Remote_Redirect,
+    custom_headers: Str_Array,
+}
+
+Clone_Local :: enum c.int {
+    Auto = 0,
+    Local = 1,
+    No_Local = 2,
+    Local_No_Links = 3
+}
+
+Clone_Options :: struct {
+    version: c.uint,
+    checkout_opts: Checkout_Options,
+    fetch_opts: Fetch_Options,
+    bare: c.int,
+    local: Clone_Local,
+    checkout_branch: cstring,
+    repository_cb: rawptr,
+    repository_cb_payload: rawptr,
+    remote_cb: rawptr,
+    remote_cb_payload: rawptr,
+}
+
+@(default_calling_convention="c", link_prefix="git_libgit2_")
+foreign lib {
+    init :: proc() ---
+    shutdown :: proc() ---
+}
+
+@(default_calling_convention="c", link_prefix="git_")
+foreign lib {
+    error_last :: proc() -> ^Error ---
+
+    repository_free :: proc(reop: ^Repository) ---
+
+    clone_options_init :: proc(opts: ^Clone_Options, version: c.uint) -> c.int ---
+    clone :: proc(out: ^^Repository, url, local_path: cstring, options: ^Clone_Options) -> c.int ---
+}
+
