@@ -1,0 +1,4 @@
+[toml_parser]
+version = "*"
+url = "https://github.com/Up05/toml_parser"
+
