@@ -2,5 +2,5 @@
 
 set -ex
 
-odin build . -extra-linker-flags:-L$HOME/.local/lib/
+odin build . -debug -extra-linker-flags:-L$HOME/.local/lib/
 

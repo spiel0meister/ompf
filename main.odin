@@ -1,8 +1,11 @@
 package ompf
 
+import "core:c"
 import "core:fmt"
 import "core:strings"
 import "core:strconv"
+import "core:os"
+import "base:runtime"
 
 import git2 "libgit2"
 import toml "./vendor/toml_parser"
@@ -22,7 +25,7 @@ Dependency :: struct {
     name, url, version: string,
 }
 
-clone_repo :: proc(name, url: string) -> (^git2.Repository, bool) {
+clone_or_open_repo :: proc(name, url: string) -> (^git2.Repository, bool) {
     opts := git2.Clone_Options{}
     git2.clone_options_init(&opts, 1)
 
@@ -32,16 +35,21 @@ clone_repo :: proc(name, url: string) -> (^git2.Repository, bool) {
     cpath := strings.clone_to_cstring(path, context.temp_allocator)
 
     repo: ^git2.Repository
-    ret := git2.clone(&repo, curl, cpath, &opts)
-    defer git2.repository_free(repo)
-
-    if ret < 0 {
+    if ret := git2.clone(&repo, curl, cpath, &opts); ret < 0 {
         last_error := git2.error_last()
-        fmt.eprintfln("Couldn't clone library {}: {}", name, last_error.message)
-        return nil, false
+        if last_error.klass != .Invalid {
+            git2.print_error(last_error)
+            return nil, false
+        } else {
+            ret = git2.repository_open(&repo, cpath)
+            assert(ret == 0)
+
+            fmt.printfln("Repo {} already cloned", name)
+            return repo, true
+        }
     }
 
-    fmt.printfln("Repo {} cloned to {}", url, path)
+    fmt.printfln("Repo {} cloned to {}", name, path)
     return repo, true
 }
 
@@ -54,6 +62,9 @@ main :: proc() {
         return
     }
 
+    dependencies: [dynamic]Dependency
+    defer delete(dependencies)
+
     for name, section in global_section {
         url := toml.get_string_panic(section.(^toml.Table), "url")
         version := toml.get_string_panic(section.(^toml.Table), "version")
@@ -63,7 +74,64 @@ main :: proc() {
             url = url,
             version = version,
         }
+        append(&dependencies, dep)
+    }
 
-        fmt.println(dep)
+    for dep in dependencies {
+        repo, ok := clone_or_open_repo(dep.name, dep.url)
+        if !ok {
+            continue
+        }
+        defer git2.repository_free(repo)
+
+        tags: git2.Str_Array
+        defer git2.strarray_dispose(&tags)
+
+        cversion := strings.clone_to_cstring(dep.version, context.temp_allocator)
+        if ret := git2.tag_list_match(&tags, cversion, repo); ret < 0 {
+            last_error := git2.error_last()
+            git2.print_error(last_error)
+            continue
+        }
+
+        if tags.size == 0 {
+            fmt.panicf("Repo {} does not have tags. Use `branch` instead of `version`", dep.url)
+        }
+
+        best_tag_name := tags.items[tags.size - 1]
+        best_tag_path := fmt.tprintf("./vendor/{}/.git/refs/tags/{}", dep.name, best_tag_name)
+
+        oid_raw, ok2 := os.read_entire_file(best_tag_path)
+        assert(ok2)
+
+        oid_string := string(oid_raw)
+        oid_string = strings.trim_space(oid_string)
+        coid_string := strings.clone_to_cstring(oid_string, context.temp_allocator)
+
+        oid: git2.Object_Id
+        if ret := git2.oid_fromstr(&oid, coid_string); ret < 0 {
+            last_error := git2.error_last()
+            git2.print_error(last_error)
+            continue
+        }
+
+        tag_object: ^git2.Object 
+        defer git2.object_free(tag_object)
+
+        if ret := git2.object_lookup(&tag_object, repo, &oid, .Commit); ret < 0 {
+            last_error := git2.error_last()
+            git2.print_error(last_error)
+            continue
+        }
+
+        if ret := git2.checkout_tree(repo, tag_object, nil); ret < 0 {
+            last_error := git2.error_last()
+            if last_error.klass != .Checkout {
+                git2.print_error(last_error)
+                continue
+            }
+        }
+
+        fmt.printfln("Switched {} to {}", dep.name, best_tag_name)
     }
 }

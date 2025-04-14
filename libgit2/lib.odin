@@ -2,15 +2,56 @@ package libgit2
 // what the fuck?
 
 import "core:c"
+import "core:fmt"
 foreign import lib {
     "system:git2",
     "system:ssl",
     "system:crypto",
 }
 
+Error_Klass :: enum c.int {
+    None = 0,
+    No_Memory = 1,
+    Os = 2,
+    Invalid = 3,
+    Reference = 4,
+    Zlib = 5,
+    Repository = 6,
+    Config = 7,
+    Regex = 8,
+    Odb = 9,
+    Index = 10,
+    Object = 11,
+    Net = 12,
+    Tag = 13,
+    Tree = 14,
+    Indexer = 15,
+    Ssl = 16,
+    Submodule = 17,
+    Thread = 18,
+    Stash = 19,
+    Checkout = 20,
+    Fetchhead = 21,
+    Merge = 22,
+    Ssh = 23,
+    Filter = 24,
+    Revert = 25,
+    Callback = 26,
+    Cherrypick = 27,
+    Describe = 28,
+    Rebase = 29,
+    Filesystem = 30,
+    Patch = 31,
+    Worktree = 32,
+    Sha = 33,
+    Http = 34,
+    Internal = 35,
+    Grafts = 36,
+}
+
 Error :: struct {
     message: cstring,
-    klass: c.int,
+    klass: Error_Klass,
 }
 
 Repository :: struct {}
@@ -18,6 +59,18 @@ Tree :: struct {}
 Object :: struct {}
 Index :: struct {}
 Tag :: struct {}
+Object_Id :: [20]u8
+
+Object_Type :: enum c.int {
+    Any = -2,
+    Invalid = -1,
+    Commit = 1,
+    Tree = 2,
+    Blob = 3,
+    Tag = 4,
+}
+
+Tag_Foreach_Callback :: proc "c" (name: cstring, oid: ^Object_Id, payload: rawptr) -> c.int
 
 Str_Array :: struct {
     items: [^]cstring,
@@ -133,6 +186,15 @@ Clone_Options :: struct {
     remote_cb_payload: rawptr,
 }
 
+print_error :: proc(error: ^Error, loc := #caller_location) -> bool {
+    if error.klass == .None {
+        return false
+    }
+
+    fmt.eprintfln("{}:{}: libgit2 error {}: {}", loc.file_path, loc.line, error.klass, error.message)
+    return true
+}
+
 @(default_calling_convention="c", link_prefix="git_libgit2_")
 foreign lib {
     init :: proc() ---
@@ -142,16 +204,25 @@ foreign lib {
 @(default_calling_convention="c", link_prefix="git_")
 foreign lib {
     error_last :: proc() -> ^Error ---
+    strarray_dispose :: proc(array: ^Str_Array) ---
 
-    repository_free :: proc(reop: ^Repository) ---
+    repository_open :: proc(out: ^^Repository, path: cstring) -> c.int ---
+    repository_free :: proc(repo: ^Repository) ---
 
     clone_options_init :: proc(opts: ^Clone_Options, version: c.uint) -> c.int ---
     clone :: proc(out: ^^Repository, url, local_path: cstring, options: ^Clone_Options) -> c.int ---
 
     checkout_tree :: proc(repo: ^Repository, treeish: ^Object, options: ^Checkout_Options) -> c.int ---
 
+    oid_fromstr :: proc(oid: ^Object_Id, str: cstring) -> c.int ---
+
+    object_lookup :: proc(out: ^^Object, repo: ^Repository, oid: ^Object_Id, type: Object_Type) -> c.int ---
+    object_free :: proc(object: ^Object) ---
+
+    tag_lookup :: proc(out: ^^Tag, repo: ^Repository, oid: ^Object_Id) -> c.int ---
     tag_list :: proc(names: ^Str_Array, repo: ^Repository) -> c.int ---
     tag_list_match :: proc(names: ^Str_Array, pattern: cstring, repo: ^Repository) -> c.int ---
     tag_target :: proc(out: ^^Object, tag: ^Tag) -> c.int ---
+    tag_foreach :: proc(repo: ^Repository, cb: Tag_Foreach_Callback, payload: rawptr) -> c.int ---
 }
 
