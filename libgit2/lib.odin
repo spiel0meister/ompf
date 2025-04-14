@@ -15,7 +15,9 @@ Error :: struct {
 
 Repository :: struct {}
 Tree :: struct {}
+Object :: struct {}
 Index :: struct {}
+Tag :: struct {}
 
 Str_Array :: struct {
     items: [^]cstring,
@@ -145,5 +147,11 @@ foreign lib {
 
     clone_options_init :: proc(opts: ^Clone_Options, version: c.uint) -> c.int ---
     clone :: proc(out: ^^Repository, url, local_path: cstring, options: ^Clone_Options) -> c.int ---
+
+    checkout_tree :: proc(repo: ^Repository, treeish: ^Object, options: ^Checkout_Options) -> c.int ---
+
+    tag_list :: proc(names: ^Str_Array, repo: ^Repository) -> c.int ---
+    tag_list_match :: proc(names: ^Str_Array, pattern: cstring, repo: ^Repository) -> c.int ---
+    tag_target :: proc(out: ^^Object, tag: ^Tag) -> c.int ---
 }
 
