@@ -1,4 +1,4 @@
 [toml_parser]
-version = "*"
+branch = "main"
 url = "https://github.com/Up05/toml_parser"
 

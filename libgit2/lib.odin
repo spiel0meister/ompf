@@ -55,6 +55,7 @@ Error :: struct {
 }
 
 Repository :: struct {}
+Reference :: struct {}
 Tree :: struct {}
 Object :: struct {}
 Index :: struct {}
@@ -68,6 +69,12 @@ Object_Type :: enum c.int {
     Tree = 2,
     Blob = 3,
     Tag = 4,
+}
+
+Branch_Type :: enum c.int {
+    Local = 1,
+    Remote = 2,
+    All = 3,
 }
 
 Tag_Foreach_Callback :: proc "c" (name: cstring, oid: ^Object_Id, payload: rawptr) -> c.int
@@ -218,6 +225,11 @@ foreign lib {
 
     object_lookup :: proc(out: ^^Object, repo: ^Repository, oid: ^Object_Id, type: Object_Type) -> c.int ---
     object_free :: proc(object: ^Object) ---
+
+    branch_lookup :: proc(out: ^^Reference, repo: ^Repository, name: cstring, type: Branch_Type) -> c.int ---
+
+    reference_target :: proc(ref: ^Reference) -> ^Object_Id ---
+    reference_free :: proc(ref: ^Reference) ---
 
     tag_lookup :: proc(out: ^^Tag, repo: ^Repository, oid: ^Object_Id) -> c.int ---
     tag_list :: proc(names: ^Str_Array, repo: ^Repository) -> c.int ---
