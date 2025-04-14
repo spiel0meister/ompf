@@ -2,7 +2,3 @@
 version = "*"
 url = "https://github.com/Up05/toml_parser"
 
-[libgit2]
-url = "https://github.com/libgit2/libgit2"
-version = "*"
-
