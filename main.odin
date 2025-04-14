@@ -36,7 +36,7 @@ Dependency :: struct {
     target: Target,
 }
 
-clone_or_open_repo :: proc(name, url: string) -> (^git2.Repository, bool) {
+clone_repo :: proc(name, url: string) -> (bool) {
     opts := git2.Clone_Options{}
     git2.clone_options_init(&opts, 1)
 
@@ -46,37 +46,50 @@ clone_or_open_repo :: proc(name, url: string) -> (^git2.Repository, bool) {
     cpath := strings.clone_to_cstring(path, context.temp_allocator)
 
     repo: ^git2.Repository
+    defer git2.repository_free(repo)
+
     if ret := git2.clone(&repo, curl, cpath, &opts); ret < 0 {
         last_error := git2.error_last()
         if last_error.klass != .Invalid {
             git2.print_error(last_error)
-            return nil, false
+            return false
         } else {
-            ret = git2.repository_open(&repo, cpath)
-            assert(ret == 0)
-
-            fmt.printfln("Repo {} already cloned", name)
-            return repo, true
+            fmt.printfln("Repo {} already cloned", name, path)
         }
     }
 
     fmt.printfln("Repo {} cloned to {}", name, path)
-    return repo, true
+    return true
+}
+
+open_dep_repo :: proc(name: string) -> (repo: ^git2.Repository, ok := true) {
+    path := fmt.tprintf("./vendor/{}", name)
+    cpath := strings.clone_to_cstring(path, context.temp_allocator)
+
+    if ret := git2.repository_open(&repo, cpath); ret < 0 {
+        last_error := git2.error_last()
+        git2.print_error(last_error)
+        ok = false
+        return
+    }
+
+    return
+}
+
+Command :: enum {
+    fetch,
+    checkout,
 }
 
 Options :: struct {
-    command: string `args:"pos=0,required" usage:"Command to execute"`,
+    command: Command `args:"pos=0,required" usage:"Command to execute"`,
 }
 
 main :: proc() {
     options: Options
-    if err := flags.parse(&options, os.args[1:]); err != nil {
-        fmt.eprintln("Couldn't parse args")
-        flags.write_usage(io.to_writer(os.stream_from_handle(os.stdout)), Options, os.args[0])
-        return
-    }
+    flags.parse_or_exit(&options, os.args, .Odin)
 
-    if options.command == "fetch" {
+    if options.command == .fetch {
         git2.init()
         defer git2.shutdown()
 
@@ -107,11 +120,47 @@ main :: proc() {
         }
 
         for dep in dependencies {
-            repo, ok := clone_or_open_repo(dep.name, dep.url)
+            ok := clone_repo(dep.name, dep.url)
             if !ok {
                 continue
             }
-            defer git2.repository_free(repo)
+        }
+    } else if options.command == .checkout {
+        git2.init()
+        defer git2.shutdown()
+
+        global_section, err1 := toml.parse_file(OMPF_CONFIG_FILENAME)
+        if print_toml_error(err1) {
+            return
+        }
+
+        dependencies: [dynamic]Dependency
+        defer delete(dependencies)
+
+        for name, section in global_section {
+            url := toml.get_string_panic(section.(^toml.Table), "url")
+
+            dep := Dependency{
+                name = name,
+                url = url,
+            }
+
+            version, is_version := toml.get_string(section.(^toml.Table), "version")
+            if is_version {
+                dep.target = Version(version)
+            } else {
+                dep.target = Branch(toml.get_string_panic(section.(^toml.Table), "branch"))
+            }
+
+            append(&dependencies, dep)
+        }
+
+        for dep in dependencies {
+            repo, ok := open_dep_repo(dep.name)
+            if !ok {
+                fmt.eprintfln("{} not cloned yet. Try running `ompf fetch` first", dep.name)
+                continue
+            }
 
             tags: git2.Str_Array
             defer git2.strarray_dispose(&tags)
