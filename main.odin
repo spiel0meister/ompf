@@ -109,36 +109,45 @@ main :: proc() {
     options: Options
     flags.parse_or_exit(&options, os.args)
 
-    if options.command == .fetch {
-        git2.init()
-        defer git2.shutdown()
+    git2.init()
+    defer git2.shutdown()
 
-        global_section, err1 := toml.parse_file(OMPF_CONFIG_FILENAME)
-        if print_toml_error(err1) {
-            return
+    global_section, err1 := toml.parse_file(OMPF_CONFIG_FILENAME)
+    if print_toml_error(err1) {
+        return
+    }
+
+    dependencies: [dynamic]Dependency
+    defer delete(dependencies)
+
+    for name, section in global_section {
+        url := toml.get_string_panic(section.(^toml.Table), "url")
+
+        dep := Dependency{
+            name = name,
+            url = url,
         }
 
-        dependencies: [dynamic]Dependency
-        defer delete(dependencies)
-
-        for name, section in global_section {
-            url := toml.get_string_panic(section.(^toml.Table), "url")
-
-            dep := Dependency{
-                name = name,
-                url = url,
-            }
-
-            version, is_version := toml.get_string(section.(^toml.Table), "version")
-            if is_version {
-                dep.target = Version(version)
-            } else {
-                dep.target = Branch(toml.get_string_panic(section.(^toml.Table), "branch"))
-            }
-
+        version, is_version := toml.get_string(section.(^toml.Table), "version")
+        if is_version {
+            dep.target = Version(version)
             append(&dependencies, dep)
+            continue
+        } 
+
+        branch, is_branch := toml.get_string(section.(^toml.Table), "branch")
+        if is_branch {
+            dep.target = Branch(branch)
+            append(&dependencies, dep)
+            continue
         }
 
+        commit := toml.get_string_panic(section.(^toml.Table), "commit")
+        dep.target = Commit(commit)
+        append(&dependencies, dep)
+    }
+
+    if options.command == .fetch {
         for dep in dependencies {
             ok := clone_repo(dep.name, dep.url)
             if !ok {
@@ -146,35 +155,6 @@ main :: proc() {
             }
         }
     } else if options.command == .checkout {
-        git2.init()
-        defer git2.shutdown()
-
-        global_section, err1 := toml.parse_file(OMPF_CONFIG_FILENAME)
-        if print_toml_error(err1) {
-            return
-        }
-
-        dependencies: [dynamic]Dependency
-        defer delete(dependencies)
-
-        for name, section in global_section {
-            url := toml.get_string_panic(section.(^toml.Table), "url")
-
-            dep := Dependency{
-                name = name,
-                url = url,
-            }
-
-            version, is_version := toml.get_string(section.(^toml.Table), "version")
-            if is_version {
-                dep.target = Version(version)
-            } else {
-                dep.target = Branch(toml.get_string_panic(section.(^toml.Table), "branch"))
-            }
-
-            append(&dependencies, dep)
-        }
-
         for dep in dependencies {
             repo, ok := open_dep_repo(dep.name)
             if !ok {
