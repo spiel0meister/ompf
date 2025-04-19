@@ -26,9 +26,11 @@ print_toml_error :: proc(err: toml.Error) -> bool {
 
 Version :: distinct string
 Branch :: distinct string
+Commit :: distinct string
 Target :: union {
     Version,
-    Branch
+    Branch,
+    Commit,
 }
 
 Dependency :: struct {
@@ -59,7 +61,7 @@ clone_repo :: proc(name, url: string) -> (bool) {
 
     curl := strings.clone_to_cstring(url, context.temp_allocator)
 
-    path := fmt.tprintf("./vendor/{}", name)
+    path := fmt.tprintf("./deps/{}", name)
     cpath := strings.clone_to_cstring(path, context.temp_allocator)
 
     repo: ^git2.Repository
@@ -81,7 +83,7 @@ clone_repo :: proc(name, url: string) -> (bool) {
 }
 
 open_dep_repo :: proc(name: string) -> (repo: ^git2.Repository, ok := true) {
-    path := fmt.tprintf("./vendor/{}", name)
+    path := fmt.tprintf("./deps/{}", name)
     cpath := strings.clone_to_cstring(path, context.temp_allocator)
 
     if ret := git2.repository_open(&repo, cpath); ret < 0 {
@@ -140,7 +142,7 @@ main :: proc() {
         for dep in dependencies {
             ok := clone_repo(dep.name, dep.url)
             if !ok {
-                continue
+                return
             }
         }
     } else if options.command == .checkout {
@@ -184,6 +186,25 @@ main :: proc() {
             defer git2.strarray_dispose(&tags)
 
             switch v in dep.target {
+            case Commit:
+                oid: git2.Object_Id
+                if ret := git2.oid_fromstr(&oid, strings.clone_to_cstring(auto_cast v, context.temp_allocator)); ret < 0 {
+                    last_error := git2.error_last()
+                    if git2.print_error(last_error) { return }
+                }
+
+                commit: ^git2.Object
+                if ret := git2.object_lookup(&commit, repo, &oid, .Commit); ret < 0 {
+                    last_error := git2.error_last()
+                    if git2.print_error(last_error) { return }
+                }
+
+                if ret := git2.checkout_tree(repo, commit, nil); ret < 0 {
+                    last_error := git2.error_last()
+                    if git2.print_error(last_error) { return }
+                }
+
+                fmt.println("{}: Switched to commit {}", cast(string)v)
             case Version:
                 cversion := strings.clone_to_cstring(string(dep.target.(Version)), context.temp_allocator)
                 if ret := git2.tag_list_match(&tags, cversion, repo); ret < 0 {
@@ -193,11 +214,11 @@ main :: proc() {
                 }
 
                 if tags.size == 0 {
-                    fmt.panicf("Repo {} does not have tags. Use `branch` instead of `version`", dep.url)
+                    fmt.panicf("Repo {} does not have tags. Use `branch` or `commit` instead of `version`", dep.url)
                 }
 
                 best_tag_name := tags.items[tags.size - 1]
-                best_tag_path := fmt.tprintf("./vendor/{}/.git/refs/tags/{}", dep.name, best_tag_name)
+                best_tag_path := fmt.tprintf("./deps/{}/.git/refs/tags/{}", dep.name, best_tag_name)
 
                 oid_raw, ok2 := os.read_entire_file(best_tag_path)
                 assert(ok2)
@@ -230,7 +251,7 @@ main :: proc() {
                     }
                 }
 
-                fmt.printfln("Switched {} to {}", dep.name, best_tag_name)
+                fmt.printfln("{}: Switched to {}", dep.name, best_tag_name)
             case Branch:
                 cbranch := strings.clone_to_cstring(string(dep.target.(Branch)), context.temp_allocator)
 
@@ -260,7 +281,7 @@ main :: proc() {
                     continue
                 }
 
-                fmt.printfln("Switched {} to branch {}", dep.name, string(dep.target.(Branch)))
+                fmt.printfln("{}: switched branch to {}", dep.name, string(dep.target.(Branch)))
             }
         }
     } else {
