@@ -7,10 +7,11 @@ import "core:strconv"
 import "core:os"
 import "core:io"
 import "core:flags"
+import "core:math"
 import "base:runtime"
 
 import git2 "libgit2"
-import toml "./vendor/toml_parser"
+import toml "./toml_parser"
 
 OMPF_CONFIG_FILENAME :: "ompf.toml"
 
@@ -37,7 +38,24 @@ Dependency :: struct {
 
 clone_repo :: proc(name, url: string) -> (bool) {
     opts := git2.Clone_Options{}
-    git2.clone_options_init(&opts, 1)
+    git2.clone_options_init(&opts, git2.VERSION)
+
+    name_copy := name
+    clone_progress_cb :: proc "c" (path: cstring, completed_steps: c.size_t, total_steps: c.size_t, payload: rawptr) {
+        name := cast(^string)payload
+
+        context = runtime.default_context()
+        last_file := cast(^cstring)payload
+
+        percent := f32(completed_steps) / f32(total_steps)
+        fmt.printf("%s %02f%%\r", name^, math.floor(percent * 100))
+
+        if percent == 1 {
+            fmt.printf("\n")
+        }
+    }
+    opts.checkout_opts.progress_cb = clone_progress_cb
+    opts.checkout_opts.progress_payload = &name_copy
 
     curl := strings.clone_to_cstring(url, context.temp_allocator)
 
@@ -53,7 +71,8 @@ clone_repo :: proc(name, url: string) -> (bool) {
             git2.print_error(last_error)
             return false
         } else {
-            fmt.printfln("Repo {} already cloned", name, path)
+            fmt.printfln("Repo {} already cloned", name)
+            return true
         }
     }
 
