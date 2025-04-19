@@ -7,7 +7,6 @@ import "core:strconv"
 import "core:os"
 import "core:io"
 import "core:flags"
-import "core:flags/example"
 import "base:runtime"
 
 import git2 "libgit2"
@@ -87,7 +86,7 @@ Options :: struct {
 
 main :: proc() {
     options: Options
-    flags.parse_or_exit(&options, os.args, .Odin)
+    flags.parse_or_exit(&options, os.args)
 
     if options.command == .fetch {
         git2.init()
