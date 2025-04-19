@@ -9,6 +9,8 @@ foreign import lib {
     "system:crypto",
 }
 
+VERSION :: 1
+
 Error_Klass :: enum c.int {
     None = 0,
     No_Memory = 1,
@@ -98,9 +100,9 @@ Perfdata :: struct {
     mkdir_calls, stat_calls, chmod_calls: c.size_t
 }
 
-Notify_Cb :: #type proc(why: Notify_Type, path: cstring, baseline, target, workdir: rawptr, payload: rawptr) -> c.int
-Progress_Cb :: #type proc(path: cstring, completed_steps: c.size_t, total_steps: c.size_t, payload: rawptr)
-Perfdata_Cb :: #type proc(perfdata: ^Perfdata, payload: rawptr)
+Notify_Cb :: #type proc "c" (why: Notify_Type, path: cstring, baseline, target, workdir: rawptr, payload: rawptr) -> c.int
+Progress_Cb :: #type proc "c" (path: cstring, completed_steps: c.size_t, total_steps: c.size_t, payload: rawptr)
+Perfdata_Cb :: #type proc "c" (perfdata: ^Perfdata, payload: rawptr)
 
 Checkout_Options :: struct {
     version: c.uint,
