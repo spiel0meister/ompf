@@ -62,6 +62,7 @@ Tree :: struct {}
 Object :: struct {}
 Index :: struct {}
 Tag :: struct {}
+Commit :: struct {}
 Object_Id :: [20]u8
 
 Object_Type :: enum c.int {
@@ -235,6 +236,9 @@ foreign lib {
 
     repository_open :: proc(out: ^^Repository, path: cstring) -> c.int ---
     repository_free :: proc(repo: ^Repository) ---
+
+    commit_free :: proc(commit: ^Commit) ---
+    commit_lookup :: proc(out: ^^Commit, repo: ^Repository, oid: ^Object_Id) -> c.int ---
 
     clone_options_init :: proc(opts: ^Clone_Options, version: c.uint) -> c.int ---
     clone :: proc(out: ^^Repository, url, local_path: cstring, options: ^Clone_Options) -> c.int ---
