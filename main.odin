@@ -121,30 +121,36 @@ main :: proc() {
     defer delete(dependencies)
 
     for name, section in global_section {
-        url := toml.get_string_panic(section.(^toml.Table), "url")
+        if name == "deps" {
+            for dep_name, dep_section in section.(^toml.Table) {
+                url := toml.get_string_panic(dep_section.(^toml.Table), "url")
 
-        dep := Dependency{
-            name = name,
-            url = url,
+                dep := Dependency{
+                    name = dep_name,
+                    url = url,
+                }
+
+                version, is_version := toml.get_string(dep_section.(^toml.Table), "version")
+                if is_version {
+                    dep.target = Version(version)
+                    append(&dependencies, dep)
+                    continue
+                } 
+
+                branch, is_branch := toml.get_string(dep_section.(^toml.Table), "branch")
+                if is_branch {
+                    dep.target = Branch(branch)
+                    append(&dependencies, dep)
+                    continue
+                }
+
+                commit := toml.get_string_panic(dep_section.(^toml.Table), "commit")
+                dep.target = Commit(commit)
+                append(&dependencies, dep)
+            }
+        } else {
+            fmt.eprintfln("Unknown section {}", name)
         }
-
-        version, is_version := toml.get_string(section.(^toml.Table), "version")
-        if is_version {
-            dep.target = Version(version)
-            append(&dependencies, dep)
-            continue
-        } 
-
-        branch, is_branch := toml.get_string(section.(^toml.Table), "branch")
-        if is_branch {
-            dep.target = Branch(branch)
-            append(&dependencies, dep)
-            continue
-        }
-
-        commit := toml.get_string_panic(section.(^toml.Table), "commit")
-        dep.target = Commit(commit)
-        append(&dependencies, dep)
     }
 
     if options.command == .fetch {
