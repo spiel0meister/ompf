@@ -84,6 +84,24 @@ Str_Array :: struct {
     size: c.size_t,
 }
 
+Notify_Type :: enum c.int {
+    None = 0,
+    Conflict = 1,
+    Dirty = 2,
+    Update = 4,
+    Untracked = 8,
+    Ignored = 16,
+    All = 65535,
+}
+
+Perfdata :: struct {
+    mkdir_calls, stat_calls, chmod_calls: c.size_t
+}
+
+Notify_Cb :: #type proc(why: Notify_Type, path: cstring, baseline, target, workdir: rawptr, payload: rawptr) -> c.int
+Progress_Cb :: #type proc(path: cstring, completed_steps: c.size_t, total_steps: c.size_t, payload: rawptr)
+Perfdata_Cb :: #type proc(perfdata: ^Perfdata, payload: rawptr)
+
 Checkout_Options :: struct {
     version: c.uint,
     checkout_strategy: c.uint,
@@ -92,9 +110,9 @@ Checkout_Options :: struct {
     file_mode: c.uint,
     file_open_flags: c.int,
     notify_flags: c.uint,
-    notify_cb: rawptr,
+    notify_cb: Notify_Cb,
     notify_payload: rawptr,
-    progress_cb: rawptr,
+    progress_cb: Progress_Cb,
     progress_payload: rawptr,
     paths: Str_Array,
     baseline: ^Tree,
@@ -103,7 +121,7 @@ Checkout_Options :: struct {
     ancestor_label: cstring,
     our_label: cstring,
     their_label: cstring,
-    perfdata_cb: rawptr,
+    perfdata_cb: Perfdata_Cb,
     perfdata_payload: rawptr,
 }
 
