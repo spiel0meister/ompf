@@ -4,6 +4,7 @@ import "base:intrinsics"
 import "core:fmt"
 import "core:reflect"
 import "core:strings"
+import "core:text/match"
 import "core:os"
 
 Flag :: struct {
@@ -47,6 +48,29 @@ print_usage :: proc(program: string, subcommands: []Subcommand_Value, flags: []F
             fmt.fprintfln(h, "    --{}", flag.name)
         }
     }
+}
+
+tag_next_property :: proc(view: string) -> (prop: string, rest: string, ok: bool) {
+    view := strings.trim_left_space(view)
+
+    i := 0
+    in_string := false
+    for ; i < len(view); i += 1 {
+        if match.is_space(auto_cast view[i]) && !in_string {
+            break
+        }
+
+        if view[i] == '"' {
+            in_string = !in_string
+        }
+    }
+
+    ok = i > 0
+    if ok {
+        prop = view[:i]
+        rest = view[i:]
+    }
+    return
 }
 
 type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dynamic]Flag, subcommand_offset: uintptr, subcommands: [dynamic]Subcommand_Value) where intrinsics.type_is_struct(S) {
@@ -110,8 +134,11 @@ type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dy
 
             tag := cast(string)field.tag
             if len(tag) > 0 {
+                tag_view := tag
                 props := strings.split(tag, " ", context.temp_allocator)
-                for prop in props {
+                for prop, rest in tag_next_property(tag_view) {
+                    tag_view = rest
+
                     if prop == "no_subcommand" {
                         flag.no_subcommand = true
                         continue
@@ -129,7 +156,7 @@ type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dy
                                 // TODO: check if alias has spaces
 
                                 // TODO: instead of adding a separate flag for the alias,
-                                //       maybe have the flag have a slice of aliases instead of a single one
+                                //       maybe have the flag have a list of aliases
                                 flag_alias := flag
                                 flag_alias.name = strings.clone(alias, allocator)
                                 append(&flags, flag_alias)
@@ -141,7 +168,7 @@ type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dy
                         continue
                     }
 
-                    fmt.panicf("TODO: Unhandled prop {}", prop)
+                    fmt.panicf("Unhandled prop {}", prop)
                 }
             }
 
