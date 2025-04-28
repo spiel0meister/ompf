@@ -113,7 +113,6 @@ set_flag_value :: proc(out, offset: uintptr, type: typeid, value_as_string: stri
 // TODO: parse struct tags
 // - TODO: something like "if this flag is present, do not require a subcommand"
 // - TODO: support aliasing flags
-// TODO: insert "help" and "h" flags automatically
 parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) {
     flags, subcommand_offset, subcommands := type_to_flags(S)
     defer delete(flags)
