@@ -13,6 +13,10 @@ Flag :: struct {
     // TODO: subcommand: Maybe(string)
 }
 
+flag_delete :: proc(flag: ^Flag) {
+    delete(flag.name)
+}
+
 print_usage :: proc(program: string, subcommands: #soa[]reflect.Enum_Field, flags: []Flag, h := os.stderr) {
     fmt.fprintfln(h, "Usage: {} [GLOBAL FLAGS] <SUBCOMMAND> [SUBCOMMAND FLAGS]", program)
     fmt.fprintfln(h, "Subcommands:")
@@ -68,6 +72,9 @@ type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dy
 parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) {
     flags, subcommand_offset, subcommands := type_to_flags(S)
     defer delete(flags)
+    defer for &flag in flags {
+        flag_delete(&flag)
+    }
 
     args := os.args
 
