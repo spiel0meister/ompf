@@ -13,11 +13,16 @@ Flag :: struct {
     // TODO: subcommand: Maybe(string)
 }
 
+Subcommand_Value :: struct {
+    name: string,
+    value: i64,
+}
+
 flag_delete :: proc(flag: ^Flag) {
     delete(flag.name)
 }
 
-print_usage :: proc(program: string, subcommands: #soa[]reflect.Enum_Field, flags: []Flag, h := os.stderr) {
+print_usage :: proc(program: string, subcommands: []Subcommand_Value, flags: []Flag, h := os.stderr) {
     fmt.fprintfln(h, "Usage: {} [GLOBAL FLAGS] <SUBCOMMAND> [SUBCOMMAND FLAGS]", program)
     fmt.fprintfln(h, "Subcommands:")
     for subcommand in subcommands {
@@ -29,7 +34,7 @@ print_usage :: proc(program: string, subcommands: #soa[]reflect.Enum_Field, flag
     }
 }
 
-type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dynamic]Flag, subcommand_offset: uintptr, subcommands: #soa[]reflect.Enum_Field) where intrinsics.type_is_struct(S) {
+type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dynamic]Flag, subcommand_offset: uintptr, subcommands: [dynamic]Subcommand_Value) where intrinsics.type_is_struct(S) {
     fields := reflect.struct_fields_zipped(S)
 
     builder := strings.builder_make()
@@ -46,25 +51,47 @@ type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dy
 
         if field.name == "subcommand" {
             subcommand_offset = field.offset
-            subcommands = reflect.enum_fields_zipped(field.type.id)
-            continue
-        }
 
-        name := field.name
-        for c in name {
-            if c == '_' {
-                strings.write_rune(&builder, '-')
-            } else {
-                strings.write_rune(&builder, c)
+            enum_fields := reflect.enum_fields_zipped(field.type.id)
+            for enum_field in enum_fields {
+                for c in enum_field.name {
+                    if c == '_' {
+                        strings.write_rune(&builder, '-')
+                    } else if c >= 'A' && c <= 'Z' {
+                        strings.write_rune(&builder, c + 32)
+                    } else {
+                        strings.write_rune(&builder, c)
+                    }
+                }
+
+                subcommands_value := Subcommand_Value{
+                    name = strings.clone(strings.to_string(builder), allocator),
+                    value = auto_cast enum_field.value,
+                }
+                append(&subcommands, subcommands_value)
+
+                strings.builder_reset(&builder)
             }
-        }
+            continue
+        } else {
+            name := field.name
+            for c in name {
+                if c == '_' {
+                    strings.write_rune(&builder, '-')
+                } else {
+                    strings.write_rune(&builder, c)
+                }
+            }
 
-        flag := Flag{
-            name = strings.clone(strings.to_string(builder), allocator),
-            type = field.type.id,
-            offset = field.offset,
+            flag := Flag{
+                name = strings.clone(strings.to_string(builder), allocator),
+                type = field.type.id,
+                offset = field.offset,
+            }
+            append(&flags, flag)
+
+            strings.builder_reset(&builder)
         }
-        append(&flags, flag)
     }
     return
 }
@@ -72,6 +99,7 @@ type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dy
 parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) {
     flags, subcommand_offset, subcommands := type_to_flags(S)
     defer delete(flags)
+    defer delete(subcommands)
     defer for &flag in flags {
         flag_delete(&flag)
     }
@@ -98,7 +126,7 @@ parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) 
                     i += 1
                     if i >= len(args) {
                         fmt.eprintfln("Unexpected end of arguments")
-                        print_usage(program, subcommands, flags[:])
+                        print_usage(program, subcommands[:], flags[:])
                         ok = false
                         return
                     }
@@ -118,7 +146,7 @@ parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) 
 
             if !found {
                 fmt.eprintfln("Unknown flag {}", arg)
-                print_usage(program, subcommands, flags[:])
+                print_usage(program, subcommands[:], flags[:])
                 ok = false
                 return
             }
@@ -132,7 +160,7 @@ parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) 
             for subcommand_ in subcommands {
                 if arg == subcommand_.name {
                     subcommand = subcommand_.name
-                    (cast(^reflect.Type_Info_Enum_Value)(cast(uintptr)out + subcommand_offset))^ = subcommand_.value
+                    (cast(^i64)(cast(uintptr)out + subcommand_offset))^ = subcommand_.value
                     found = true
                     break
                 }
@@ -140,7 +168,7 @@ parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) 
 
             if !found {
                 fmt.eprintfln("Expected subcommand")
-                print_usage(program, subcommands, flags[:])
+                print_usage(program, subcommands[:], flags[:])
                 ok = false
                 return
             }
