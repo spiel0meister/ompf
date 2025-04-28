@@ -6,7 +6,6 @@ import "core:strings"
 import "core:strconv"
 import "core:os"
 import "core:io"
-import "core:flags"
 import "core:math"
 import "base:runtime"
 
@@ -96,18 +95,21 @@ open_dep_repo :: proc(name: string) -> (repo: ^git2.Repository, ok := true) {
     return
 }
 
-Command :: enum {
-    fetch,
-    checkout,
+Subcommand :: enum {
+    Fetch,
+    Checkout,
+    List,
 }
 
-Options :: struct {
-    command: Command `args:"pos=0,required" usage:"Command to execute"`,
+Args :: struct {
+    subcommand: Subcommand,
 }
 
 main :: proc() {
-    options: Options
-    flags.parse_or_exit(&options, os.args)
+    args: Args
+    if !parse_args(&args) {
+        return
+    }
 
     git2.init()
     defer git2.shutdown()
@@ -153,14 +155,15 @@ main :: proc() {
         }
     }
 
-    if options.command == .fetch {
+    switch args.subcommand {
+    case .Fetch:
         for dep in dependencies {
             ok := clone_repo(dep.name, dep.url)
             if !ok {
                 return
             }
         }
-    } else if options.command == .checkout {
+    case .Checkout:
         for dep in dependencies {
             repo, ok := open_dep_repo(dep.name)
             if !ok {
@@ -270,8 +273,17 @@ main :: proc() {
                 fmt.printfln("{}: switched branch to {}", dep.name, string(dep.target.(Branch)))
             }
         }
-    } else {
-        fmt.eprintfln("Unknown command {}", options.command)
-        return
+    case .List:
+        for dep in dependencies {
+            fmt.printf("{}: ", dep.name)
+            switch v in dep.target {
+            case Version:
+                fmt.printfln("version {}", v)
+            case Commit:
+                fmt.printfln("commit hash {}", v)
+            case Branch:
+                fmt.printfln("on branch {}", v)
+            }
+        }
     }
 }
