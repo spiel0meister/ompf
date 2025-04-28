@@ -13,9 +13,11 @@ Flag :: struct {
     type: typeid,
     offset: uintptr,
 
+    aliases: [dynamic]string,
+
     no_subcommand: bool,
     usage: Maybe(string),
-    // TODO: subcommand: Maybe(string)
+    subcommand: Maybe(string)
 }
 
 Subcommand_Value :: struct {
@@ -25,6 +27,7 @@ Subcommand_Value :: struct {
 
 flag_delete :: proc(flag: ^Flag) {
     delete(flag.name)
+    delete(flag.aliases)
 }
 
 maybe_trim_quotes :: proc(str: string) -> (rest: string, ok: bool) {
@@ -54,25 +57,63 @@ to_kebab_case :: proc(s: string, allocator := context.allocator) -> (kebab: stri
     return
 }
 
-print_usage :: proc(program: string, subcommands: []Subcommand_Value, flags: []Flag, h := os.stderr) {
-    fmt.fprintfln(h, "Usage: {} [GLOBAL FLAGS] <SUBCOMMAND> [SUBCOMMAND FLAGS]", program)
-    fmt.fprintfln(h, "Subcommands:")
-    for subcommand in subcommands {
-        fmt.fprintfln(h, "    {}", subcommand.name)
-    }
-    fmt.fprintfln(h, "Global flags:")
-    for flag in flags {
-        if len(flag.name) == 1 {
-            fmt.fprintf(h, "    -{}", flag.name)
-        } else {
-            fmt.fprintf(h, "    --{}", flag.name)
-        }
+print_usage :: proc(program: string, subcommand: Maybe(string), subcommands: []Subcommand_Value, flags: []Flag, h := os.stderr) {
+    if subcommand != nil {
+        subcommand_as_string := subcommand.(string)
+        fmt.fprintfln(h, "Usage: {} [GLOBAL FLAGS] {} [SUBCOMMAND FLAGS]", program, subcommand_as_string)
+        fmt.fprintfln(h, "{} flags:", subcommand_as_string)
+        for flag in flags {
+            if flag.subcommand != subcommand { continue }
+            if len(flag.name) == 1 {
+                fmt.fprintf(h, "    -{}", flag.name)
+            } else {
+                fmt.fprintf(h, "    --{}", flag.name)
+            }
 
-        if flag.usage != nil {
-            fmt.fprintf(h, " | {}", flag.usage)
-        }
+            if len(flag.aliases) > 0 {
+                fmt.fprint(h, " (aliases: ")
+                for alias, i in flag.aliases {
+                    if i != 0 { fmt.fprint(h, ", ") }
+                    fmt.fprintf(h, `"{}"`, alias)
+                }
+                fmt.fprint(h, ")")
+            }
 
-        fmt.fprintln(h)
+            if flag.usage != nil {
+                fmt.fprintf(h, " | {}", flag.usage)
+            }
+
+            fmt.fprintln(h)
+        }
+    } else {
+        fmt.fprintfln(h, "Usage: {} [GLOBAL FLAGS] <SUBCOMMAND> [SUBCOMMAND FLAGS]", program)
+        fmt.fprintfln(h, "Subcommands:")
+        for subcommand in subcommands {
+            fmt.fprintfln(h, "    {}", subcommand.name)
+        }
+        fmt.fprintfln(h, "Global flags:")
+        for flag in flags {
+            if len(flag.name) == 1 {
+                fmt.fprintf(h, "    -{}", flag.name)
+            } else {
+                fmt.fprintf(h, "    --{}", flag.name)
+            }
+
+            if len(flag.aliases) > 0 {
+                fmt.fprint(h, " (aliases: ")
+                for alias, i in flag.aliases {
+                    if i != 0 { fmt.fprint(h, ", ") }
+                    fmt.fprintf(h, `"{}"`, alias)
+                }
+                fmt.fprint(h, ")")
+            }
+
+            if flag.usage != nil {
+                fmt.fprintf(h, " | {}", flag.usage)
+            }
+
+            fmt.fprintln(h)
+        }
     }
 }
 
@@ -172,12 +213,7 @@ type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dy
                             for alias in aliases {
                                 alias := strings.trim_space(alias)
                                 // TODO: check if alias has spaces
-
-                                // TODO: instead of adding a separate flag for the alias,
-                                //       maybe have the flag have a list of aliases
-                                flag_alias := flag
-                                flag_alias.name = strings.clone(alias, allocator)
-                                append(&flags, flag_alias)
+                                append(&flag.aliases, alias)
                             }
                         } else {
                             fmt.panicf("Expected aliases to be in double quotes")
@@ -209,6 +245,15 @@ type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dy
     }
 
     return
+}
+
+flag_matches :: proc(arg: string, flag: Flag, short: bool) -> bool {
+    if arg == flag.name { return true }
+    for alias in flag.aliases {
+        if short && len(alias) > 1 { continue }
+        if arg == alias { return true }
+    }
+    return false
 }
 
 set_flag_value :: proc(out, offset: uintptr, type: typeid, value_as_string: string) {
@@ -243,12 +288,12 @@ parse_args :: proc(out: ^$S) -> (program: string, ok := true) where intrinsics.t
             arg_without_prefix := strings.trim_prefix(arg, "--")
 
             if arg_without_prefix == "help" {
-                print_usage(program, subcommands[:], flags[:], os.stdout)
+                print_usage(program, subcommand, subcommands[:], flags[:], os.stdout)
                 os.exit(0)
             }
 
             for flag in flags {
-                if flag.name == arg_without_prefix {
+                if flag_matches(arg_without_prefix, flag, false) {
                     subcommand_required &= !flag.no_subcommand
 
                     if flag.type == bool {
@@ -259,7 +304,7 @@ parse_args :: proc(out: ^$S) -> (program: string, ok := true) where intrinsics.t
                     i += 1
                     if i >= len(args) {
                         fmt.eprintfln("Unexpected end of arguments")
-                        print_usage(program, subcommands[:], flags[:])
+                        print_usage(program, subcommand, subcommands[:], flags[:])
                         ok = false
                         return
                     }
@@ -272,27 +317,25 @@ parse_args :: proc(out: ^$S) -> (program: string, ok := true) where intrinsics.t
             }
 
             fmt.eprintfln("Unknown flag {}", arg)
-            print_usage(program, subcommands[:], flags[:])
+            print_usage(program, subcommand, subcommands[:], flags[:])
             ok = false
             return
         } else if strings.has_prefix(arg, "-") {
             arg_without_prefix := strings.trim_prefix(arg, "-")
             if len(arg_without_prefix) != 1 {
                 fmt.eprintln("Flags that begin with one `-` must have only one letter")
-                print_usage(program, subcommands[:], flags[:])
+                print_usage(program, subcommand, subcommands[:], flags[:])
                 ok = false
                 return
             }
 
             if arg_without_prefix == "h" {
-                print_usage(program, subcommands[:], flags[:], os.stdout)
+                print_usage(program, subcommand, subcommands[:], flags[:], os.stdout)
                 os.exit(0)
             }
 
             for flag in flags {
-                if len(flag.name) != 1 {
-                    continue
-                } else if arg_without_prefix == flag.name {
+                if flag_matches(arg_without_prefix, flag, true) {
                     subcommand_required &= !flag.no_subcommand
 
                     if flag.type == bool {
@@ -303,7 +346,7 @@ parse_args :: proc(out: ^$S) -> (program: string, ok := true) where intrinsics.t
                     i += 1
                     if i >= len(args) {
                         fmt.eprintfln("Unexpected end of arguments")
-                        print_usage(program, subcommands[:], flags[:])
+                        print_usage(program, subcommand, subcommands[:], flags[:])
                         ok = false
                         return
                     }
@@ -316,7 +359,7 @@ parse_args :: proc(out: ^$S) -> (program: string, ok := true) where intrinsics.t
             }
 
             fmt.eprintfln("Unkown flag {}", arg)
-            print_usage(program, subcommands[:], flags[:])
+            print_usage(program, subcommand, subcommands[:], flags[:])
             ok = false
             return
         }
@@ -334,7 +377,7 @@ parse_args :: proc(out: ^$S) -> (program: string, ok := true) where intrinsics.t
 
             if !found {
                 fmt.eprintfln("Expected subcommand")
-                print_usage(program, subcommands[:], flags[:])
+                print_usage(program, subcommand, subcommands[:], flags[:])
                 ok = false
                 return
             }
@@ -345,7 +388,7 @@ parse_args :: proc(out: ^$S) -> (program: string, ok := true) where intrinsics.t
 
     if subcommand_required && subcommand == nil {
         fmt.eprintfln("Expected subcommand")
-        print_usage(program, subcommands[:], flags[:])
+        print_usage(program, subcommand, subcommands[:], flags[:])
         ok = false
         return
     }
