@@ -210,7 +210,7 @@ set_flag_value :: proc(out, offset: uintptr, type: typeid, value_as_string: stri
 }
 
 // TODO: parse struct field tags
-parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) {
+parse_args :: proc(out: ^$S) -> (program: string, ok := true) where intrinsics.type_is_struct(S) {
     flags, subcommand_offset, subcommands := type_to_flags(S)
     defer delete(flags)
     defer delete(subcommands)
@@ -220,7 +220,7 @@ parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) 
 
     args := os.args
 
-    program := args[0]
+    program = args[0]
     pos := 0
 
     subcommand_required := true
@@ -339,5 +339,5 @@ parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) 
         return
     }
 
-    return true
+    return
 }

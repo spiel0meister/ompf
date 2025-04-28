@@ -119,12 +119,14 @@ Args :: struct {
 
 main :: proc() {
     args: Args
-    if !parse_args(&args) {
+
+    program, parsed_args := parse_args(&args)
+    if !parsed_args {
         return
     }
 
     if args.version {
-        fmt.println("version", VERSION)
+        fmt.printfln("{} version {}", program, VERSION)
         return
     }
 
