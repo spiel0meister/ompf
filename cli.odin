@@ -10,6 +10,8 @@ Flag :: struct {
     name: string,
     type: typeid,
     offset: uintptr,
+
+    no_subcommand: bool,
     // TODO: subcommand: Maybe(string)
 }
 
@@ -92,6 +94,20 @@ type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dy
                 type = field.type.id,
                 offset = field.offset,
             }
+
+            tag := cast(string)field.tag
+            if len(tag) > 0 {
+                props := strings.split(tag, " ", context.temp_allocator)
+                for prop in props {
+                    if prop == "no_subcommand" {
+                        flag.no_subcommand = true
+                        continue
+                    }
+
+                    fmt.panicf("TODO: Unhandled prop {}", prop)
+                }
+            }
+
             append(&flags, flag)
 
             strings.builder_reset(&builder)
@@ -110,8 +126,7 @@ set_flag_value :: proc(out, offset: uintptr, type: typeid, value_as_string: stri
     }
 }
 
-// TODO: parse struct tags
-// - TODO: something like "if this flag is present, do not require a subcommand"
+// TODO: parse struct field tags
 // - TODO: support aliasing flags
 parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) {
     flags, subcommand_offset, subcommands := type_to_flags(S)
@@ -125,6 +140,8 @@ parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) 
 
     program := args[0]
     pos := 0
+
+    subcommand_required := true
     subcommand: Maybe(string)
 
     outer_loop:for i := 1; i < len(args); i += 1 {
@@ -139,6 +156,8 @@ parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) 
 
             for flag in flags {
                 if flag.name == arg_without_prefix {
+                    subcommand_required &= !flag.no_subcommand
+
                     if flag.type == bool {
                         (cast(^bool)(cast(uintptr)out + flag.offset))^ = true
                         continue outer_loop
@@ -181,6 +200,8 @@ parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) 
                 if len(flag.name) != 1 {
                     continue
                 } else if arg_without_prefix == flag.name {
+                    subcommand_required &= !flag.no_subcommand
+
                     if flag.type == bool {
                         (cast(^bool)(cast(uintptr)out + flag.offset))^ = true
                         continue outer_loop
@@ -229,7 +250,7 @@ parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) 
         }
     }
 
-    if subcommand == nil {
+    if subcommand_required && subcommand == nil {
         fmt.eprintfln("Expected subcommand")
         print_usage(program, subcommands[:], flags[:])
         ok = false
