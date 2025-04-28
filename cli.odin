@@ -24,6 +24,15 @@ flag_delete :: proc(flag: ^Flag) {
     delete(flag.name)
 }
 
+maybe_trim_quotes :: proc(str: string) -> (rest: string, ok: bool) {
+    ok = strings.has_prefix(str, "\"") && strings.has_suffix(str, "\"")
+    if ok {
+        rest = strings.trim_prefix(str, "\"")
+        rest = strings.trim_suffix(rest, "\"")
+    }
+    return
+}
+
 print_usage :: proc(program: string, subcommands: []Subcommand_Value, flags: []Flag, h := os.stderr) {
     fmt.fprintfln(h, "Usage: {} [GLOBAL FLAGS] <SUBCOMMAND> [SUBCOMMAND FLAGS]", program)
     fmt.fprintfln(h, "Subcommands:")
@@ -111,23 +120,24 @@ type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dy
                     if strings.has_prefix(prop, "alias:") {
                         aliases_should_be_in_qoutes := strings.trim_prefix(prop, "alias:")
 
-                        if !strings.has_prefix(aliases_should_be_in_qoutes, `"`) || !strings.has_suffix(aliases_should_be_in_qoutes, `"`) {
+                        if aliases_commas, ok := maybe_trim_quotes(aliases_should_be_in_qoutes); ok {
+                            aliases_commas := strings.trim_suffix(strings.trim_prefix(aliases_should_be_in_qoutes, `"`), `"`)
+                            aliases := strings.split(aliases_commas, ",")
+
+                            for alias in aliases {
+                                alias := strings.trim_space(alias)
+                                // TODO: check if alias has spaces
+
+                                // TODO: instead of adding a separate flag for the alias,
+                                //       maybe have the flag have a slice of aliases instead of a single one
+                                flag_alias := flag
+                                flag_alias.name = strings.clone(alias, allocator)
+                                append(&flags, flag_alias)
+                            }
+                        } else {
                             fmt.panicf("Expected aliases to be in double quotes")
                         }
 
-                        aliases_commas := strings.trim_suffix(strings.trim_prefix(aliases_should_be_in_qoutes, `"`), `"`)
-                        aliases := strings.split(aliases_commas, ",")
-
-                        for alias in aliases {
-                            alias := strings.trim_space(alias)
-                            // TODO: check if alias has spaces
-
-                            // TODO: instead of adding a separate flag for the alias,
-                            //       maybe have the flag have a slice of aliases instead of a single one
-                            flag_alias := flag
-                            flag_alias.name = strings.clone(alias, allocator)
-                            append(&flags, flag_alias)
-                        }
                         continue
                     }
 
