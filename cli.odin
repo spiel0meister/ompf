@@ -210,7 +210,6 @@ set_flag_value :: proc(out, offset: uintptr, type: typeid, value_as_string: stri
 }
 
 // TODO: parse struct field tags
-// - TODO: specify usage
 parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) {
     flags, subcommand_offset, subcommands := type_to_flags(S)
     defer delete(flags)
