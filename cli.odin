@@ -75,6 +75,10 @@ type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dy
             continue
         } else {
             name := field.name
+            if name == "help" || name == "h" {
+                fmt.panicf(`Using reserved flags "help" and "h"`)
+            }
+
             for c in name {
                 if c == '_' {
                     strings.write_rune(&builder, '-')
@@ -93,6 +97,7 @@ type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dy
             strings.builder_reset(&builder)
         }
     }
+
     return
 }
 
@@ -128,6 +133,11 @@ parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) 
         if strings.has_prefix(arg, "--") {
             arg_without_prefix := strings.trim_prefix(arg, "--")
 
+            if arg_without_prefix == "help" {
+                print_usage(program, subcommands[:], flags[:], os.stdout)
+                os.exit(0)
+            }
+
             for flag in flags {
                 if flag.name == arg_without_prefix {
                     if flag.type == bool {
@@ -161,6 +171,11 @@ parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) 
                 print_usage(program, subcommands[:], flags[:])
                 ok = false
                 return
+            }
+
+            if arg_without_prefix == "h" {
+                print_usage(program, subcommands[:], flags[:], os.stdout)
+                os.exit(0)
             }
 
             for flag in flags {
