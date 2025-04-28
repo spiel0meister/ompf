@@ -6,6 +6,7 @@ import "core:reflect"
 import "core:strings"
 import "core:text/match"
 import "core:os"
+import "core:testing"
 
 Flag :: struct {
     name: string,
@@ -340,4 +341,23 @@ parse_args :: proc(out: ^$S) -> (program: string, ok := true) where intrinsics.t
     }
 
     return
+}
+
+@(test)
+test_tag_next_property :: proc(t: ^testing.T) {
+    TAG :: `no_subcommand usage:"Usage" alias:"alias"`
+
+    expected_props := []string{
+        "no_subcommand",
+        `usage:"Usage"`,
+        `alias:"alias"`,
+    }
+    i := 0
+
+    tag_view := TAG
+    for prop, rest in tag_next_property(tag_view) {
+        tag_view = rest
+        testing.expectf(t, prop == expected_props[i], "Prop: {}; expected: {}", prop, expected_props[i])
+        i += 1
+    }
 }
