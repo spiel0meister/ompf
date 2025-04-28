@@ -36,6 +36,24 @@ maybe_trim_quotes :: proc(str: string) -> (rest: string, ok: bool) {
     return
 }
 
+to_kebab_case :: proc(s: string, allocator := context.allocator) -> (kebab: string) {
+    builder := strings.builder_make()
+    defer strings.builder_destroy(&builder)
+
+    for c in s {
+        if c == '_' {
+            strings.write_rune(&builder, '-')
+        } else if c >= 'A' && c <= 'Z' {
+            strings.write_rune(&builder, c + 32)
+        } else {
+            strings.write_rune(&builder, c)
+        }
+    }
+
+    kebab = strings.clone(strings.to_string(builder))
+    return
+}
+
 print_usage :: proc(program: string, subcommands: []Subcommand_Value, flags: []Flag, h := os.stderr) {
     fmt.fprintfln(h, "Usage: {} [GLOBAL FLAGS] <SUBCOMMAND> [SUBCOMMAND FLAGS]", program)
     fmt.fprintfln(h, "Subcommands:")
@@ -126,16 +144,8 @@ type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dy
                 fmt.panicf(`Using reserved flags "help" and "h"`)
             }
 
-            for c in name {
-                if c == '_' {
-                    strings.write_rune(&builder, '-')
-                } else {
-                    strings.write_rune(&builder, c)
-                }
-            }
-
             flag := Flag{
-                name = strings.clone(strings.to_string(builder), allocator),
+                name = to_kebab_case(name, allocator),
                 type = field.type.id,
                 offset = field.offset,
             }
