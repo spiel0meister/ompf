@@ -13,6 +13,7 @@ Flag :: struct {
     offset: uintptr,
 
     no_subcommand: bool,
+    usage: Maybe(string),
     // TODO: subcommand: Maybe(string)
 }
 
@@ -43,10 +44,16 @@ print_usage :: proc(program: string, subcommands: []Subcommand_Value, flags: []F
     fmt.fprintfln(h, "Global flags:")
     for flag in flags {
         if len(flag.name) == 1 {
-            fmt.fprintfln(h, "    -{}", flag.name)
+            fmt.fprintf(h, "    -{}", flag.name)
         } else {
-            fmt.fprintfln(h, "    --{}", flag.name)
+            fmt.fprintf(h, "    --{}", flag.name)
         }
+
+        if flag.usage != nil {
+            fmt.fprintf(h, " | {}", flag.usage)
+        }
+
+        fmt.fprintln(h)
     }
 }
 
@@ -163,6 +170,18 @@ type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dy
                             }
                         } else {
                             fmt.panicf("Expected aliases to be in double quotes")
+                        }
+
+                        continue
+                    }
+
+                    if strings.has_prefix(prop, "usage:") {
+                        usage_in_quotes := strings.trim_prefix(prop, "usage:")
+
+                        if usage, ok := maybe_trim_quotes(usage_in_quotes); ok {
+                            flag.usage = usage
+                        } else {
+                            fmt.panicf("Expected usage to be in qoutes")
                         }
 
                         continue
