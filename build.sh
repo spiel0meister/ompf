@@ -2,5 +2,7 @@
 
 set -ex
 
-odin build . -debug -extra-linker-flags:-L$HOME/.local/lib/
+version=$(git describe --always HEAD)
+
+odin build . -debug -extra-linker-flags:-L$HOME/.local/lib/ "-define:VERSION=$version"
 
