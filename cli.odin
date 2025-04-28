@@ -177,5 +177,12 @@ parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) 
         }
     }
 
+    if subcommand == nil {
+        fmt.eprintfln("Expected subcommand")
+        print_usage(program, subcommands[:], flags[:])
+        ok = false
+        return
+    }
+
     return true
 }
