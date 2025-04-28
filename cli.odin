@@ -93,6 +93,7 @@ print_usage :: proc(program: string, subcommand: Maybe(string), subcommands: []S
         }
         fmt.fprintfln(h, "Global flags:")
         for flag in flags {
+            if flag.subcommand != nil { continue }
             if len(flag.name) == 1 {
                 fmt.fprintf(h, "    -{}", flag.name)
             } else {
