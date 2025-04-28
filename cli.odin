@@ -96,6 +96,9 @@ type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dy
     return
 }
 
+// TODO: something like "if this flag is present, do not require a subcommand"
+// TODO: support aliasing flags
+// TODO: insert "help" and "h" flags automatically
 parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) {
     flags, subcommand_offset, subcommands := type_to_flags(S)
     defer delete(flags)

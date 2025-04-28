@@ -12,6 +12,7 @@ import "base:runtime"
 import git2 "libgit2"
 import toml "./toml_parser"
 
+VERSION :: #config(VERSION, "this should not happen")
 OMPF_CONFIG_FILENAME :: "ompf.toml"
 
 print_toml_error :: proc(err: toml.Error) -> bool {
@@ -103,11 +104,17 @@ Subcommand :: enum {
 
 Args :: struct {
     subcommand: Subcommand,
+    version: bool,
 }
 
 main :: proc() {
     args: Args
     if !parse_args(&args) {
+        return
+    }
+
+    if args.version {
+        fmt.println("version", VERSION)
         return
     }
 
