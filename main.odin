@@ -114,7 +114,7 @@ Subcommand :: enum {
 
 Args :: struct {
     subcommand: Subcommand,
-    version: bool `no_subcommand`,
+    version: bool `alias:"v" no_subcommand`,
 }
 
 main :: proc() {

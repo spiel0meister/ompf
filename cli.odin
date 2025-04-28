@@ -32,7 +32,11 @@ print_usage :: proc(program: string, subcommands: []Subcommand_Value, flags: []F
     }
     fmt.fprintfln(h, "Global flags:")
     for flag in flags {
-        fmt.fprintfln(h, "    --{}", flag.name)
+        if len(flag.name) == 1 {
+            fmt.fprintfln(h, "    -{}", flag.name)
+        } else {
+            fmt.fprintfln(h, "    --{}", flag.name)
+        }
     }
 }
 
@@ -104,6 +108,29 @@ type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dy
                         continue
                     }
 
+                    if strings.has_prefix(prop, "alias:") {
+                        aliases_should_be_in_qoutes := strings.trim_prefix(prop, "alias:")
+
+                        if !strings.has_prefix(aliases_should_be_in_qoutes, `"`) || !strings.has_suffix(aliases_should_be_in_qoutes, `"`) {
+                            fmt.panicf("Expected aliases to be in double quotes")
+                        }
+
+                        aliases_commas := strings.trim_suffix(strings.trim_prefix(aliases_should_be_in_qoutes, `"`), `"`)
+                        aliases := strings.split(aliases_commas, ",")
+
+                        for alias in aliases {
+                            alias := strings.trim_space(alias)
+                            // TODO: check if alias has spaces
+
+                            // TODO: instead of adding a separate flag for the alias,
+                            //       maybe have the flag have a slice of aliases instead of a single one
+                            flag_alias := flag
+                            flag_alias.name = strings.clone(alias, allocator)
+                            append(&flags, flag_alias)
+                        }
+                        continue
+                    }
+
                     fmt.panicf("TODO: Unhandled prop {}", prop)
                 }
             }
@@ -127,7 +154,7 @@ set_flag_value :: proc(out, offset: uintptr, type: typeid, value_as_string: stri
 }
 
 // TODO: parse struct field tags
-// - TODO: support aliasing flags
+// - TODO: specify usage
 parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) {
     flags, subcommand_offset, subcommands := type_to_flags(S)
     defer delete(flags)
