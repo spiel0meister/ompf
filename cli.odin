@@ -91,7 +91,7 @@ type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dy
         if reflect.is_struct(field.type) {
             fmt.panicf("TODO: flag cannot be a struct")
         } else if reflect.is_union(field.type) {
-            fmt.panicf("TODO: flag cannot be a struct")
+            fmt.panicf("TODO: flag cannot be a union")
         } else if reflect.is_pointer(field.type) {
             fmt.panicf("TODO: flag cannot be a pointer")
         }
