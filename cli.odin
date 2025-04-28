@@ -96,8 +96,18 @@ type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dy
     return
 }
 
-// TODO: something like "if this flag is present, do not require a subcommand"
-// TODO: support aliasing flags
+set_flag_value :: proc(out, offset: uintptr, type: typeid, value_as_string: string) {
+    switch type {
+    case string:
+        (cast(^string)(cast(uintptr)out + offset))^ = value_as_string
+    case:
+        fmt.panicf("TODO: Unhandled flag type {}", type)
+    }
+}
+
+// TODO: parse struct tags
+// - TODO: something like "if this flag is present, do not require a subcommand"
+// - TODO: support aliasing flags
 // TODO: insert "help" and "h" flags automatically
 parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) {
     flags, subcommand_offset, subcommands := type_to_flags(S)
@@ -118,7 +128,6 @@ parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) 
         if strings.has_prefix(arg, "--") {
             arg_without_prefix := strings.trim_prefix(arg, "--")
 
-            found := false
             for flag in flags {
                 if flag.name == arg_without_prefix {
                     if flag.type == bool {
@@ -135,27 +144,53 @@ parse_args :: proc(out: ^$S) -> (ok := true) where intrinsics.type_is_struct(S) 
                     }
 
                     flag_string_value := args[i]
-                    switch flag.type {
-                    case string:
-                        (cast(^string)(cast(uintptr)out + flag.offset))^ = flag_string_value
-                    case:
-                        fmt.panicf("TODO: Unhandled flag type {}", flag.type)
-                    }
+                    set_flag_value(cast(uintptr)out, flag.offset, flag.type, flag_string_value)
 
-                    found := true
-                    break
+                    continue outer_loop
                 }
             }
 
-            if !found {
-                fmt.eprintfln("Unknown flag {}", arg)
+            fmt.eprintfln("Unknown flag {}", arg)
+            print_usage(program, subcommands[:], flags[:])
+            ok = false
+            return
+        } else if strings.has_prefix(arg, "-") {
+            arg_without_prefix := strings.trim_prefix(arg, "-")
+            if len(arg_without_prefix) != 1 {
+                fmt.eprintln("Flags that begin with one `-` must have only one letter")
                 print_usage(program, subcommands[:], flags[:])
                 ok = false
                 return
             }
-        } else if strings.has_prefix(arg, "-") {
-            arg_without_prefix := strings.trim_prefix(arg, "-")
-            fmt.panicf("TODO: short flags")
+
+            for flag in flags {
+                if len(flag.name) != 1 {
+                    continue
+                } else if arg_without_prefix == flag.name {
+                    if flag.type == bool {
+                        (cast(^bool)(cast(uintptr)out + flag.offset))^ = true
+                        continue outer_loop
+                    }
+
+                    i += 1
+                    if i >= len(args) {
+                        fmt.eprintfln("Unexpected end of arguments")
+                        print_usage(program, subcommands[:], flags[:])
+                        ok = false
+                        return
+                    }
+
+                    flag_string_value := args[i]
+                    set_flag_value(cast(uintptr)out, flag.offset, flag.type, flag_string_value)
+
+                    continue outer_loop
+                }
+            }
+
+            fmt.eprintfln("Unkown flag {}", arg)
+            print_usage(program, subcommands[:], flags[:])
+            ok = false
+            return
         }
 
         if pos == 0 {
