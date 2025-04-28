@@ -96,6 +96,16 @@ open_dep_repo :: proc(name: string) -> (repo: ^git2.Repository, ok := true) {
     return
 }
 
+print_git2_last_error :: proc() -> bool {
+    error := git2.error_last()
+    if error.klass == .None {
+        return false
+    }
+
+    fmt.eprintfln("libgit2 error {}: {}", error.klass, error.message)
+    return true
+}
+
 Subcommand :: enum {
     Fetch,
     Checkout,
@@ -185,27 +195,23 @@ main :: proc() {
             case Commit:
                 oid: git2.Object_Id
                 if ret := git2.oid_fromstr(&oid, strings.clone_to_cstring(auto_cast v, context.temp_allocator)); ret < 0 {
-                    last_error := git2.error_last()
-                    if git2.print_error(last_error) { return }
+                    print_git2_last_error()
                 }
 
                 commit: ^git2.Object
                 if ret := git2.object_lookup(&commit, repo, &oid, .Commit); ret < 0 {
-                    last_error := git2.error_last()
-                    if git2.print_error(last_error) { return }
+                    print_git2_last_error()
                 }
 
                 if ret := git2.checkout_tree(repo, commit, nil); ret < 0 {
-                    last_error := git2.error_last()
-                    if git2.print_error(last_error) { return }
+                    print_git2_last_error()
                 }
 
                 fmt.println("{}: Switched to commit {}", cast(string)v)
             case Version:
                 cversion := strings.clone_to_cstring(string(dep.target.(Version)), context.temp_allocator)
                 if ret := git2.tag_list_match(&tags, cversion, repo); ret < 0 {
-                    last_error := git2.error_last()
-                    git2.print_error(last_error)
+                    print_git2_last_error()
                     continue
                 }
 
@@ -225,8 +231,7 @@ main :: proc() {
 
                 oid: git2.Object_Id
                 if ret := git2.oid_fromstr(&oid, coid_string); ret < 0 {
-                    last_error := git2.error_last()
-                    git2.print_error(last_error)
+                    print_git2_last_error()
                     continue
                 }
 
@@ -234,8 +239,7 @@ main :: proc() {
                 defer git2.object_free(tag_object)
 
                 if ret := git2.object_lookup(&tag_object, repo, &oid, .Commit); ret < 0 {
-                    last_error := git2.error_last()
-                    git2.print_error(last_error)
+                    print_git2_last_error()
                     continue
                 }
 
@@ -247,7 +251,7 @@ main :: proc() {
                     }
                 }
 
-                fmt.printfln("{}: Switched to {}", dep.name, best_tag_name)
+                fmt.printfln("{}: Switched to tag {}", dep.name, best_tag_name)
             case Branch:
                 cbranch := strings.clone_to_cstring(string(dep.target.(Branch)), context.temp_allocator)
 
@@ -255,8 +259,7 @@ main :: proc() {
                 defer git2.reference_free(ref)
 
                 if ret := git2.branch_lookup(&ref, repo, cbranch, .Local); ret < 0 {
-                    error := git2.error_last()
-                    git2.print_error(error)
+                    print_git2_last_error()
                     continue
                 }
 
@@ -266,14 +269,12 @@ main :: proc() {
                 defer git2.object_free(object)
 
                 if ret := git2.object_lookup(&object, repo, oid, .Commit); ret < 0 {
-                    error := git2.error_last()
-                    git2.print_error(error)
+                    print_git2_last_error()
                     continue
                 }
 
                 if ret := git2.checkout_tree(repo, object, nil); ret < 0 {
-                    error := git2.error_last()
-                    git2.print_error(error)
+                    print_git2_last_error()
                     continue
                 }
 
@@ -287,9 +288,9 @@ main :: proc() {
             case Version:
                 fmt.printfln("version {}", v)
             case Commit:
-                fmt.printfln("commit hash {}", v)
+                fmt.printfln("commit {}", v)
             case Branch:
-                fmt.printfln("on branch {}", v)
+                fmt.printfln("branch {}", v)
             }
         }
     }
