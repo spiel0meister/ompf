@@ -327,11 +327,6 @@ main :: proc() {
     git2.init()
     defer git2.shutdown()
 
-    global_section, err1 := toml.parse_file(OMPF_CONFIG_FILENAME)
-    if print_toml_error(err1) {
-        os.exit(1)
-    }
-
     actual_path, err := os.absolute_path_from_relative(".")
     assert(err == nil)
 
