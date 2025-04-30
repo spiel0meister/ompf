@@ -25,6 +25,16 @@ print_toml_error :: proc(err: toml.Error) -> bool {
     return true
 }
 
+print_git2_last_error :: proc() -> bool {
+    error := git2.error_last()
+    if error.klass == .None {
+        return false
+    }
+
+    fmt.eprintfln("libgit2 error {}: {}", error.klass, error.message)
+    return true
+}
+
 Version :: distinct string
 Branch :: distinct string
 Commit :: distinct string
@@ -35,9 +45,17 @@ Target :: union {
 }
 
 Package :: struct {
-    name, url: string,
+    name, path, url: string,
     target: Target,
     dependencies: [dynamic]Package,
+}
+
+package_destroy :: proc(pakage: ^Package) {
+    defer delete(pakage.dependencies)
+    defer for &dep in pakage.dependencies {
+        package_destroy(&dep)
+    }
+    delete(pakage.path)
 }
 
 clone_repo :: proc(pakage, name, url: string) -> (bool) {
@@ -73,7 +91,6 @@ clone_repo :: proc(pakage, name, url: string) -> (bool) {
             git2.print_error(last_error)
             return false
         } else {
-            fmt.printfln("Repo {} already cloned", name)
             return true
         }
     }
@@ -96,71 +113,16 @@ open_dep_repo :: proc(pakage, name: string) -> (repo: ^git2.Repository, ok := tr
     return
 }
 
-print_git2_last_error :: proc() -> bool {
-    error := git2.error_last()
-    if error.klass == .None {
-        return false
+collect_dependencies :: proc(pakage: ^Package, allocator := context.allocator) -> bool {
+    ompf_toml := fmt.tprintf("{}/{}", pakage.path, OMPF_CONFIG_FILENAME)
+    if !os.exists(ompf_toml) {
+        return true
     }
 
-    fmt.eprintfln("libgit2 error {}: {}", error.klass, error.message)
-    return true
-}
+    parsed_file, err := toml.parse_file(ompf_toml)
+    if print_toml_error(err) { return false }
 
-list_pakages :: proc(pakage: ^Package, indent := 0, h := os.stdout) {
-    whitespace := strings.repeat(" ", indent, context.temp_allocator)
-
-    fmt.fprintf(h, "{}{} | ", whitespace, pakage.name)
-    switch v in pakage.target {
-    case Version:
-        fmt.fprintfln(h, "version {}", v)
-    case Branch:
-        fmt.fprintfln(h, "branch {}", v)
-    case Commit:
-        fmt.fprintfln(h, "commit {}", v)
-    }
-    for &dep in pakage.dependencies {
-        list_pakages(&dep, indent + 4)
-    }
-}
-
-Subcommand :: enum {
-    Fetch,
-    Checkout,
-    List,
-}
-
-Args :: struct {
-    subcommand: Subcommand,
-    version: bool `no_subcommand usage:"Display version" alias:"v"`,
-}
-
-main :: proc() {
-    args: Args
-
-    program, parsed_args := parse_args(&args)
-    if !parsed_args {
-        return
-    }
-
-    if args.version {
-        fmt.printfln("{} version {}", program, VERSION)
-        return
-    }
-
-    git2.init()
-    defer git2.shutdown()
-
-    global_section, err1 := toml.parse_file(OMPF_CONFIG_FILENAME)
-    if print_toml_error(err1) {
-        return
-    }
-
-    pakage := Package{
-        name = ".",
-        target = Branch("main"),
-    }
-
-    for name, section in global_section {
+    for name, section in parsed_file {
         if name == "deps" {
             for dep_name, dep_section in section.(^toml.Table) {
                 url := toml.get_string_panic(dep_section.(^toml.Table), "url")
@@ -169,6 +131,7 @@ main :: proc() {
                     name = dep_name,
                     url = url,
                 }
+                dep.path = strings.clone(fmt.tprintf("{}/deps/{}", pakage.name, dep.name), allocator)
 
                 version, is_version := toml.get_string(dep_section.(^toml.Table), "version")
                 if is_version {
@@ -193,14 +156,85 @@ main :: proc() {
         }
     }
 
-    switch args.subcommand {
-    case .Fetch:
-        for dep in pakage.dependencies {
-            ok := clone_repo(pakage.name, dep.name, dep.url)
-            if !ok {
-                return
-            }
+    for &dep in pakage.dependencies {
+        clone_repo(pakage.path, dep.name, dep.url) or_return
+        collect_dependencies(&dep) or_return
+    }
+
+    return true
+}
+
+list_pakages :: proc(pakage: ^Package, indent := 0, h := os.stdout) {
+    whitespace := strings.repeat(" ", indent, context.temp_allocator)
+
+    fmt.fprintf(h, "{}{} | ", whitespace, pakage.name)
+    switch v in pakage.target {
+    case Version:
+        fmt.fprintfln(h, "version {}", v)
+    case Branch:
+        fmt.fprintfln(h, "branch {}", v)
+    case Commit:
+        fmt.fprintfln(h, "commit {}", v)
+    }
+    for &dep in pakage.dependencies {
+        list_pakages(&dep, indent + 4)
+    }
+}
+
+Subcommand :: enum {
+    Checkout,
+    List,
+}
+
+Args :: struct {
+    subcommand: Subcommand,
+    version: bool `no_subcommand usage:"Display version" alias:"v"`,
+}
+
+main :: proc() {
+    args: Args
+
+    program, parsed_args := parse_args(&args)
+    if !parsed_args {
+        os.exit(1)
+    }
+
+    if args.version {
+        fmt.printfln("{} version {}", program, VERSION)
+        return
+    }
+
+    git2.init()
+    defer git2.shutdown()
+
+    global_section, err1 := toml.parse_file(OMPF_CONFIG_FILENAME)
+    if print_toml_error(err1) {
+        os.exit(1)
+    }
+
+    actual_path, err := os.absolute_path_from_relative(".")
+    assert(err == nil)
+
+    name := actual_path
+    for i := len(actual_path) - 1; i >= 0; i -= 1 {
+        if actual_path[i] == '/' {
+            name = actual_path[i + 1:]
+            break
         }
+    }
+
+    pakage := Package{
+        name = name,
+        path = actual_path,
+        target = Branch("main"),
+    }
+    defer package_destroy(&pakage)
+
+    if !collect_dependencies(&pakage) {
+        os.exit(1)
+    }
+
+    switch args.subcommand {
     case .Checkout:
         for dep in pakage.dependencies {
             repo, ok := open_dep_repo(pakage.name, dep.name)
