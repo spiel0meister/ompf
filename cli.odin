@@ -12,7 +12,6 @@ Flag :: struct {
     name: string,
     type: typeid,
     offset: uintptr,
-
     aliases: [dynamic]string,
 
     no_subcommand: bool,
@@ -141,6 +140,7 @@ tag_next_property :: proc(view: string) -> (prop: string, rest: string, ok: bool
     return
 }
 
+// TODO: flag validation
 type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dynamic]Flag, subcommand_offset: uintptr, subcommands: [dynamic]Subcommand_Value) where intrinsics.type_is_struct(S) {
     fields := reflect.struct_fields_zipped(S)
 
