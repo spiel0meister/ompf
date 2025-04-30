@@ -13,6 +13,7 @@ import git2 "libgit2"
 import toml "./toml_parser"
 
 VERSION :: #config(VERSION, "this should not happen")
+
 OMPF_CONFIG_FILENAME :: "ompf.toml"
 
 print_toml_error :: proc(err: toml.Error) -> bool {
@@ -38,7 +39,7 @@ Dependency :: struct {
     target: Target,
 }
 
-clone_repo :: proc(name, url: string) -> (bool) {
+clone_repo :: proc(pakage, name, url: string) -> (bool) {
     opts := git2.Clone_Options{}
     git2.clone_options_init(&opts, git2.VERSION)
 
@@ -47,8 +48,6 @@ clone_repo :: proc(name, url: string) -> (bool) {
         name := cast(^string)payload
 
         context = runtime.default_context()
-        last_file := cast(^cstring)payload
-
         percent := f32(completed_steps) / f32(total_steps)
         fmt.printf("%s %02f%%\r", name^, math.floor(percent * 100))
 
@@ -61,7 +60,7 @@ clone_repo :: proc(name, url: string) -> (bool) {
 
     curl := strings.clone_to_cstring(url, context.temp_allocator)
 
-    path := fmt.tprintf("./deps/{}", name)
+    path := fmt.tprintf("{}/deps/{}", pakage, name)
     cpath := strings.clone_to_cstring(path, context.temp_allocator)
 
     repo: ^git2.Repository
@@ -177,7 +176,7 @@ main :: proc() {
     switch args.subcommand {
     case .Fetch:
         for dep in dependencies {
-            ok := clone_repo(dep.name, dep.url)
+            ok := clone_repo(".", dep.name, dep.url)
             if !ok {
                 return
             }
