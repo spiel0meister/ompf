@@ -34,9 +34,10 @@ Target :: union {
     Commit,
 }
 
-Dependency :: struct {
+Package :: struct {
     name, url: string,
     target: Target,
+    dependencies: [dynamic]Package,
 }
 
 clone_repo :: proc(pakage, name, url: string) -> (bool) {
@@ -81,8 +82,8 @@ clone_repo :: proc(pakage, name, url: string) -> (bool) {
     return true
 }
 
-open_dep_repo :: proc(name: string) -> (repo: ^git2.Repository, ok := true) {
-    path := fmt.tprintf("./deps/{}", name)
+open_dep_repo :: proc(pakage, name: string) -> (repo: ^git2.Repository, ok := true) {
+    path := fmt.tprintf("{}/deps/{}", pakage, name)
     cpath := strings.clone_to_cstring(path, context.temp_allocator)
 
     if ret := git2.repository_open(&repo, cpath); ret < 0 {
@@ -103,6 +104,23 @@ print_git2_last_error :: proc() -> bool {
 
     fmt.eprintfln("libgit2 error {}: {}", error.klass, error.message)
     return true
+}
+
+list_pakages :: proc(pakage: ^Package, indent := 0, h := os.stdout) {
+    whitespace := strings.repeat(" ", indent, context.temp_allocator)
+
+    fmt.fprintf(h, "{}{} | ", whitespace, pakage.name)
+    switch v in pakage.target {
+    case Version:
+        fmt.fprintfln(h, "version {}", v)
+    case Branch:
+        fmt.fprintfln(h, "branch {}", v)
+    case Commit:
+        fmt.fprintfln(h, "commit {}", v)
+    }
+    for &dep in pakage.dependencies {
+        list_pakages(&dep, indent + 4)
+    }
 }
 
 Subcommand :: enum {
@@ -137,15 +155,17 @@ main :: proc() {
         return
     }
 
-    dependencies: [dynamic]Dependency
-    defer delete(dependencies)
+    pakage := Package{
+        name = ".",
+        target = Branch("main"),
+    }
 
     for name, section in global_section {
         if name == "deps" {
             for dep_name, dep_section in section.(^toml.Table) {
                 url := toml.get_string_panic(dep_section.(^toml.Table), "url")
 
-                dep := Dependency{
+                dep := Package{
                     name = dep_name,
                     url = url,
                 }
@@ -153,20 +173,20 @@ main :: proc() {
                 version, is_version := toml.get_string(dep_section.(^toml.Table), "version")
                 if is_version {
                     dep.target = Version(version)
-                    append(&dependencies, dep)
+                    append(&pakage.dependencies, dep)
                     continue
                 } 
 
                 branch, is_branch := toml.get_string(dep_section.(^toml.Table), "branch")
                 if is_branch {
                     dep.target = Branch(branch)
-                    append(&dependencies, dep)
+                    append(&pakage.dependencies, dep)
                     continue
                 }
 
                 commit := toml.get_string_panic(dep_section.(^toml.Table), "commit")
                 dep.target = Commit(commit)
-                append(&dependencies, dep)
+                append(&pakage.dependencies, dep)
             }
         } else {
             fmt.eprintfln("Unknown section {}", name)
@@ -175,15 +195,15 @@ main :: proc() {
 
     switch args.subcommand {
     case .Fetch:
-        for dep in dependencies {
-            ok := clone_repo(".", dep.name, dep.url)
+        for dep in pakage.dependencies {
+            ok := clone_repo(pakage.name, dep.name, dep.url)
             if !ok {
                 return
             }
         }
     case .Checkout:
-        for dep in dependencies {
-            repo, ok := open_dep_repo(dep.name)
+        for dep in pakage.dependencies {
+            repo, ok := open_dep_repo(pakage.name, dep.name)
             if !ok {
                 fmt.eprintfln("{} not cloned yet. Try running `ompf fetch` first", dep.name)
                 continue
@@ -283,16 +303,6 @@ main :: proc() {
             }
         }
     case .List:
-        for dep in dependencies {
-            fmt.printf("{}: ", dep.name)
-            switch v in dep.target {
-            case Version:
-                fmt.printfln("version {}", v)
-            case Commit:
-                fmt.printfln("commit {}", v)
-            case Branch:
-                fmt.printfln("branch {}", v)
-            }
-        }
+        list_pakages(&pakage)
     }
 }
