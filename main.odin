@@ -340,7 +340,6 @@ main :: proc() {
     pakage := Package{
         name = name,
         path = actual_path,
-        target = Branch("main"),
     }
     defer package_destroy(&pakage)
 
