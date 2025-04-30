@@ -140,7 +140,6 @@ tag_next_property :: proc(view: string) -> (prop: string, rest: string, ok: bool
     return
 }
 
-// TODO: flag validation
 type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dynamic]Flag, subcommand_offset: uintptr, subcommands: [dynamic]Subcommand_Value) where intrinsics.type_is_struct(S) {
     fields := reflect.struct_fields_zipped(S)
 
@@ -213,7 +212,15 @@ type_to_flags :: proc($S: typeid, allocator := context.allocator) -> (flags: [dy
 
                             for alias in aliases {
                                 alias := strings.trim_space(alias)
-                                // TODO: check if alias has spaces
+
+                                for flag in flags {
+                                    for flag_alias in flag.aliases {
+                                        if alias == flag_alias {
+                                            fmt.panicf("flag {} already has alias {}", flag.name, alias)
+                                        }
+                                    }
+                                }
+
                                 append(&flag.aliases, alias)
                             }
                         } else {
