@@ -12,7 +12,7 @@ import "base:runtime"
 import git2 "libgit2"
 import toml "./toml_parser"
 
-VERSION :: #config(VERSION, "this should not happen")
+VERSION :string: #config(VERSION, "this should not happen")
 
 OMPF_CONFIG_FILENAME :: "ompf.toml"
 
@@ -131,7 +131,7 @@ collect_dependencies :: proc(pakage: ^Package, allocator := context.allocator) -
                     name = dep_name,
                     url = url,
                 }
-                dep.path = strings.clone(fmt.tprintf("{}/deps/{}", pakage.name, dep.name), allocator)
+                dep.path = strings.clone(fmt.tprintf("{}/deps/{}", pakage.path, dep.name), allocator)
 
                 version, is_version := toml.get_string(dep_section.(^toml.Table), "version")
                 if is_version {
@@ -159,6 +159,120 @@ collect_dependencies :: proc(pakage: ^Package, allocator := context.allocator) -
     for &dep in pakage.dependencies {
         clone_repo(pakage.path, dep.name, dep.url) or_return
         collect_dependencies(&dep) or_return
+    }
+
+    return true
+}
+
+checkout_package :: proc(pakage: ^Package, root := true) -> (bool) {
+    if !root {
+        cpath := strings.clone_to_cstring(pakage.path, context.temp_allocator)
+
+        repo: ^git2.Repository
+        if ret := git2.repository_open(&repo, cpath); ret < 0 {
+            last_error := git2.error_last()
+            git2.print_error(last_error)
+            return false
+        }
+
+        tags: git2.Str_Array
+        defer git2.strarray_dispose(&tags)
+
+        switch v in pakage.target {
+        case Commit:
+            oid: git2.Object_Id
+            if ret := git2.oid_fromstr(&oid, strings.clone_to_cstring(auto_cast v, context.temp_allocator)); ret < 0 {
+                print_git2_last_error()
+            }
+
+            commit: ^git2.Object
+            if ret := git2.object_lookup(&commit, repo, &oid, .Commit); ret < 0 {
+                print_git2_last_error()
+            }
+
+            if ret := git2.checkout_tree(repo, commit, nil); ret < 0 {
+                print_git2_last_error()
+            }
+
+            fmt.println("{}: Switched to commit {}", cast(string)v)
+        case Version:
+            cversion := strings.clone_to_cstring(string(pakage.target.(Version)), context.temp_allocator)
+            if ret := git2.tag_list_match(&tags, cversion, repo); ret < 0 {
+                print_git2_last_error()
+                return false
+            }
+
+            if tags.size == 0 {
+                fmt.eprintfln("Repo {} does not have tags. Use `branch` or `commit` instead of `version`", pakage.url)
+                return false
+            }
+
+            best_tag_name := tags.items[tags.size - 1]
+            best_tag_path := fmt.tprintf("{}/.git/refs/tags/{}", pakage.path, best_tag_name)
+
+            oid_raw, ok2 := os.read_entire_file(best_tag_path)
+            assert(ok2)
+
+            oid_string := string(oid_raw)
+            oid_string = strings.trim_space(oid_string)
+            coid_string := strings.clone_to_cstring(oid_string, context.temp_allocator)
+
+            oid: git2.Object_Id
+            if ret := git2.oid_fromstr(&oid, coid_string); ret < 0 {
+                print_git2_last_error()
+                return false
+            }
+
+            tag_object: ^git2.Object 
+            defer git2.object_free(tag_object)
+
+            if ret := git2.object_lookup(&tag_object, repo, &oid, .Commit); ret < 0 {
+                print_git2_last_error()
+                return false
+            }
+
+            if ret := git2.checkout_tree(repo, tag_object, nil); ret < 0 {
+                last_error := git2.error_last()
+                if last_error.klass != .Checkout {
+                    git2.print_error(last_error)
+                    return false
+                }
+            }
+
+            fmt.printfln("{}: Switched to tag {}", pakage.name, best_tag_name)
+        case Branch:
+            cbranch := strings.clone_to_cstring(string(pakage.target.(Branch)), context.temp_allocator)
+
+            ref: ^git2.Reference
+            defer git2.reference_free(ref)
+
+            if ret := git2.branch_lookup(&ref, repo, cbranch, .Local); ret < 0 {
+                print_git2_last_error()
+                return false
+            }
+
+            oid := git2.reference_target(ref)
+
+            object: ^git2.Object
+            defer git2.object_free(object)
+
+            if ret := git2.object_lookup(&object, repo, oid, .Commit); ret < 0 {
+                print_git2_last_error()
+                return false
+            }
+
+            if ret := git2.checkout_tree(repo, object, nil); ret < 0 {
+                print_git2_last_error()
+                return false
+            }
+
+            fmt.printfln("{}: switched branch to {}", pakage.name, string(pakage.target.(Branch)))
+        }
+
+    }
+
+    for &dep in pakage.dependencies {
+        checkout_package(&dep, false) or_return
     }
 
     return true
@@ -236,105 +350,8 @@ main :: proc() {
 
     switch args.subcommand {
     case .Checkout:
-        for dep in pakage.dependencies {
-            repo, ok := open_dep_repo(pakage.name, dep.name)
-            if !ok {
-                fmt.eprintfln("{} not cloned yet. Try running `ompf fetch` first", dep.name)
-                continue
-            }
-
-            tags: git2.Str_Array
-            defer git2.strarray_dispose(&tags)
-
-            switch v in dep.target {
-            case Commit:
-                oid: git2.Object_Id
-                if ret := git2.oid_fromstr(&oid, strings.clone_to_cstring(auto_cast v, context.temp_allocator)); ret < 0 {
-                    print_git2_last_error()
-                }
-
-                commit: ^git2.Object
-                if ret := git2.object_lookup(&commit, repo, &oid, .Commit); ret < 0 {
-                    print_git2_last_error()
-                }
-
-                if ret := git2.checkout_tree(repo, commit, nil); ret < 0 {
-                    print_git2_last_error()
-                }
-
-                fmt.println("{}: Switched to commit {}", cast(string)v)
-            case Version:
-                cversion := strings.clone_to_cstring(string(dep.target.(Version)), context.temp_allocator)
-                if ret := git2.tag_list_match(&tags, cversion, repo); ret < 0 {
-                    print_git2_last_error()
-                    continue
-                }
-
-                if tags.size == 0 {
-                    fmt.panicf("Repo {} does not have tags. Use `branch` or `commit` instead of `version`", dep.url)
-                }
-
-                best_tag_name := tags.items[tags.size - 1]
-                best_tag_path := fmt.tprintf("./deps/{}/.git/refs/tags/{}", dep.name, best_tag_name)
-
-                oid_raw, ok2 := os.read_entire_file(best_tag_path)
-                assert(ok2)
-
-                oid_string := string(oid_raw)
-                oid_string = strings.trim_space(oid_string)
-                coid_string := strings.clone_to_cstring(oid_string, context.temp_allocator)
-
-                oid: git2.Object_Id
-                if ret := git2.oid_fromstr(&oid, coid_string); ret < 0 {
-                    print_git2_last_error()
-                    continue
-                }
-
-                tag_object: ^git2.Object 
-                defer git2.object_free(tag_object)
-
-                if ret := git2.object_lookup(&tag_object, repo, &oid, .Commit); ret < 0 {
-                    print_git2_last_error()
-                    continue
-                }
-
-                if ret := git2.checkout_tree(repo, tag_object, nil); ret < 0 {
-                    last_error := git2.error_last()
-                    if last_error.klass != .Checkout {
-                        git2.print_error(last_error)
-                        continue
-                    }
-                }
-
-                fmt.printfln("{}: Switched to tag {}", dep.name, best_tag_name)
-            case Branch:
-                cbranch := strings.clone_to_cstring(string(dep.target.(Branch)), context.temp_allocator)
-
-                ref: ^git2.Reference
-                defer git2.reference_free(ref)
-
-                if ret := git2.branch_lookup(&ref, repo, cbranch, .Local); ret < 0 {
-                    print_git2_last_error()
-                    continue
-                }
-
-                oid := git2.reference_target(ref)
-
-                object: ^git2.Object
-                defer git2.object_free(object)
-
-                if ret := git2.object_lookup(&object, repo, oid, .Commit); ret < 0 {
-                    print_git2_last_error()
-                    continue
-                }
-
-                if ret := git2.checkout_tree(repo, object, nil); ret < 0 {
-                    print_git2_last_error()
-                    continue
-                }
-
-                fmt.printfln("{}: switched branch to {}", dep.name, string(dep.target.(Branch)))
-            }
+        if !checkout_package(&pakage) {
+            os.exit(1)
         }
     case .List:
         list_pakages(&pakage)
