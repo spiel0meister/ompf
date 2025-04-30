@@ -278,20 +278,26 @@ checkout_package :: proc(pakage: ^Package, root := true) -> (bool) {
     return true
 }
 
-list_pakages :: proc(pakage: ^Package, indent := 0, h := os.stdout) {
+list_pakages :: proc(pakage: ^Package, root := true, indent := 0, h := os.stdout) {
     whitespace := strings.repeat(" ", indent, context.temp_allocator)
 
-    fmt.fprintf(h, "{}{} | ", whitespace, pakage.name)
-    switch v in pakage.target {
-    case Version:
-        fmt.fprintfln(h, "version {}", v)
-    case Branch:
-        fmt.fprintfln(h, "branch {}", v)
-    case Commit:
-        fmt.fprintfln(h, "commit {}", v)
+    fmt.fprintf(h, "{}{}", whitespace, pakage.name)
+    if !root {
+        fmt.fprintf(h, " | ")
+        switch v in pakage.target {
+        case Version:
+            fmt.fprintfln(h, "version {}", v)
+        case Branch:
+            fmt.fprintfln(h, "branch {}", v)
+        case Commit:
+            fmt.fprintfln(h, "commit {}", v)
+        }
+    } else {
+        fmt.fprintfln(h, "")
     }
+
     for &dep in pakage.dependencies {
-        list_pakages(&dep, indent + 4)
+        list_pakages(&dep, false, indent + 4)
     }
 }
 
